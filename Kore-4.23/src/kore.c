@@ -153,149 +153,175 @@ version(void)
 	exit(0);
 }
 
-int
-main(int argc, char *argv[])
+/****  START   ***/
+
+int main(int argc, char *argv[])
 {
-	struct kore_runtime_call	*rcall;
+    struct kore_runtime_call *rcall;
 #if !defined(KORE_SINGLE_BINARY) && defined(KORE_USE_PYTHON)
-	struct stat			st;
+    struct stat st;
 #endif
 
-	kore_argc = argc;
-	kore_argv = argv;
+    kore_argc = argc;
+    kore_argv = argv;
+
+    // Инициализация памяти, сообщений и логирования
+    kore_mem_init();
+    kore_msg_init();
+    kore_log_init();
+
+    kore_progname = kore_strdup(argv[0]);
+    kore_proctitle_setup();
 
 #if !defined(KORE_SINGLE_BINARY)
-	kore_default_getopt(argc, argv);
-#endif
-
-	kore_mem_init();
-	kore_msg_init();
-	kore_log_init();
-
-	kore_progname = kore_strdup(argv[0]);
-	kore_proctitle_setup();
-
-#if !defined(KORE_SINGLE_BINARY)
-	argc -= optind;
-	argv += optind;
+    argc -= optind;  // Сдвигаем аргументы
+    argv += optind;
 #endif
 
 #if !defined(KORE_SINGLE_BINARY) && defined(KORE_USE_PYTHON)
-	if (argc > 0) {
-		kore_pymodule = argv[0];
-		argc--;
-		argv++;
-	} else {
-		kore_pymodule = NULL;
-	}
+    if (argc > 0) {
+        kore_pymodule = argv[0];
+        argc--;
+        argv++;
+    } else {
+        kore_pymodule = NULL;
+    }
 
-	if (kore_pymodule) {
-		if (lstat(kore_pymodule, &st) == -1) {
-			fatal("failed to stat '%s': %s",
-			    kore_pymodule, errno_s);
-		}
+    // Проверка, существует ли Python-модуль и является ли он файлом или директорией
+    if (kore_pymodule) {
+        if (lstat(kore_pymodule, &st) == -1) {
+            fatal("failed to stat '%s': %s", kore_pymodule, errno_s);
+        }
 
-		if (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))
-			fatal("%s: not a directory or file", kore_pymodule);
-	}
+        if (!S_ISDIR(st.st_mode) && !S_ISREG(st.st_mode))
+            fatal("%s: not a directory or file", kore_pymodule);
+    }
 #endif
 
-	kore_pid = getpid();
-	nlisteners = 0;
-	LIST_INIT(&kore_servers);
+    kore_pid = getpid();
+    nlisteners = 0;
+    LIST_INIT(&kore_servers);
 
-	kore_platform_init();
+    kore_platform_init();  // Инициализация платформы
+
 #if !defined(KORE_NO_HTTP)
-	http_parent_init();
+    http_parent_init();  // Инициализация HTTP подсистемы
 #if defined(KORE_USE_CURL)
-	kore_curl_sysinit();
+    kore_curl_sysinit();  // Инициализация cURL
 #endif
 #if defined(KORE_USE_PGSQL)
-	kore_pgsql_sys_init();
+    kore_pgsql_sys_init();  // Инициализация PostgreSQL
 #endif
-	kore_auth_init();
-	kore_validator_init();
-	kore_filemap_init();
+    kore_auth_init();  // Инициализация системы аутентификации
+    kore_validator_init();  // Инициализация валидаторов
+    kore_filemap_init();  // Инициализация маппинга файлов
 #endif
 #if defined(KORE_USE_ACME)
-	kore_acme_init();
+    kore_acme_init();  // Инициализация ACME (например, для сертификатов)
 #endif
-	kore_domain_init();
-	kore_module_init();
-	kore_tls_init();
+    kore_domain_init();  // Инициализация доменов
+    kore_module_init();  // Инициализация модулей
+    kore_tls_init();  // Инициализация TLS
 
 #if !defined(KORE_SINGLE_BINARY) && !defined(KORE_USE_PYTHON)
-	if (config_file == NULL)
-		usage();
+    if (config_file == NULL)
+        usage();  // Если нет файла конфигурации, выводим помощь
 #endif
-	kore_module_load(NULL, NULL, KORE_MODULE_NATIVE);
+
+    kore_module_load(NULL, NULL, KORE_MODULE_NATIVE);  // Загрузка модулей
 
 #if defined(KORE_USE_PYTHON)
-	kore_python_init();
+    kore_python_init();  // Инициализация Python
 #if !defined(KORE_SINGLE_BINARY)
-	if (kore_pymodule) {
-		kore_module_load(kore_pymodule, NULL, KORE_MODULE_PYTHON);
-		if (S_ISDIR(st.st_mode) && chdir(kore_pymodule) == -1)
-			fatal("chdir(%s): %s", kore_pymodule, errno_s);
-	} else {
-		/* swap back to non-python hooks. */
-		parent_config_hook = KORE_CONFIG_HOOK;
-		parent_teardown_hook = KORE_TEARDOWN_HOOK;
-	}
+    if (kore_pymodule) {
+        kore_module_load(kore_pymodule, NULL, KORE_MODULE_PYTHON);  // Загрузка Python модуля
+        if (S_ISDIR(st.st_mode) && chdir(kore_pymodule) == -1)
+            fatal("chdir(%s): %s", kore_pymodule, errno_s);
+    } else {
+        /* swap back to non-python hooks. */
+        parent_config_hook = KORE_CONFIG_HOOK;
+        parent_teardown_hook = KORE_TEARDOWN_HOOK;
+    }
 #endif
 #endif
 
 #if defined(KORE_SINGLE_BINARY)
-	kore_call_parent_configure(argc, argv);
+    kore_call_parent_configure(argc, argv);  // Вызов конфигурации родительского процесса
 #endif
 
 #if defined(KORE_USE_PYTHON) && !defined(KORE_SINGLE_BINARY)
-	if (kore_pymodule)
-		kore_call_parent_configure(argc, argv);
+    if (kore_pymodule)
+        kore_call_parent_configure(argc, argv);  // Вызов конфигурации для Python
 #endif
 
-	kore_parse_config();
+    kore_parse_config();  // Чтение конфигурационного файла
 
 #if !defined(KORE_SINGLE_BINARY)
-	free(config_file);
+    free(config_file);  // Освобождение памяти, если файл конфигурации был передан
 #endif
 
 #if !defined(KORE_NO_HTTP)
-	if (http_body_disk_offload > 0) {
-		if (mkdir(http_body_disk_path, 0700) == -1 && errno != EEXIST) {
-			printf("can't create http_body_disk_path '%s': %s\n",
-			    http_body_disk_path, errno_s);
-			return (KORE_RESULT_ERROR);
-		}
-	}
+    // Если указан путь для выгрузки тела HTTP-запроса на диск
+    if (http_body_disk_offload > 0) {
+        if (mkdir(http_body_disk_path, 0700) == -1 && errno != EEXIST) {
+            printf("can't create http_body_disk_path '%s': %s\n",
+                http_body_disk_path, errno_s);
+            return (KORE_RESULT_ERROR);
+        }
+    }
 #endif
 
-	kore_signal_setup();
-	kore_server_start(argc, argv);
-	kore_server_shutdown();
+    kore_signal_setup();  // Установка обработчиков сигналов
+    kore_server_start(argc, argv);  // Запуск сервера
+    kore_server_shutdown();  // Завершение работы сервера
 
-	rcall = kore_runtime_getcall(parent_teardown_hook);
-	if (rcall != NULL) {
-		kore_runtime_execute(rcall);
-		kore_free(rcall);
-	}
+    rcall = kore_runtime_getcall(parent_teardown_hook);  // Получение точки завершения
+    if (rcall != NULL) {
+        kore_runtime_execute(rcall);  // Выполнение точки завершения
+        kore_free(rcall);  // Освобождение памяти
+    }
 
-	if (unlink(kore_pidfile) == -1 && errno != ENOENT)
-		kore_log(LOG_NOTICE, "failed to remove pidfile (%s)", errno_s);
+    // Удаление PID файла, если процесс завершён
+    if (unlink(kore_pidfile) == -1 && errno != ENOENT)
+        kore_log(LOG_NOTICE, "failed to remove pidfile (%s)", errno_s);
 
-	kore_server_cleanup();
+    kore_server_cleanup();  // Очистка после завершения работы сервера
 
-	if (!kore_quiet)
-		kore_log(LOG_INFO, "goodbye");
+    if (!kore_quiet)
+        kore_log(LOG_INFO, "goodbye");  // Логирование прощания
 
 #if defined(KORE_USE_PYTHON)
-	kore_python_cleanup();
+    kore_python_cleanup();  // Очистка Python
 #endif
 
-	kore_mem_cleanup();
+    kore_mem_cleanup();  // Очистка памяти
 
-	return (kore_quit);
+    return (kore_quit);  // Завершение программы
+	
+	
+/*
+
+Инициализация подсистем: Подключаются и инициализируются все основные модули, такие как:
+
+http_parent_init() — HTTP подсистема.
+kore_tls_init() — TLS инициализация.
+kore_domain_init() — работа с доменами.
+kore_pgsql_sys_init() — поддержка PostgreSQL.
+kore_module_init() — управление пользовательскими модулями.
+
+Основные комментарии:
+1. **Инициализация систем**: Инициализация различных подсистем (память, логирование, HTTP, PostgreSQL и т.д.) происходит на старте.
+2. **Обработка Python-модулей**: Если используется Python, выполняется специальная обработка и загрузка Python-скриптов.
+3. **Загрузка и инициализация модулей**: Это важный этап, где происходит загрузка всех активных модулей и плагинов.
+4. **Запуск сервера**: После настройки всех подсистем и модулей сервер запускается, обрабатывает запросы и завершает работу по сигналам.
+5. **Завершение работы**: В конце освобождаются ресурсы, очищается память и сервер завершает свою работу.
+
+
+
+*/
+
 }
+
 
 void
 kore_default_getopt(int argc, char **argv)

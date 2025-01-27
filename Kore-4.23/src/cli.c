@@ -1315,7 +1315,7 @@ cli_build_asset(char *fpath, struct dirent *dp)
 	cli_file_close(in);
 	cli_file_close(out);
 
-	/* Restore the original name */
+	/* Restore the @original name */
 	*--ext = '.';
 
 	/* Register the .c file now (cpath is free'd later). */

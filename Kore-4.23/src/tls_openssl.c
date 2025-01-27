@@ -15,7 +15,7 @@
  */
 
 /*
- * This TLS backend is the original TLS code used in Kore.
+ * This TLS backend is the @original TLS code used in Kore.
  */
 
 #include <sys/types.h>

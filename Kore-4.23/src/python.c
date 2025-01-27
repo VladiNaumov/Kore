@@ -4566,7 +4566,7 @@ pygather_op_dealloc(struct pygather_op *op)
 	/*
 	 * Since we are calling kore_python_coro_delete() on all the
 	 * remaining coroutines in this gather op we must remember the
-	 * original coroutine that is running as the removal will end
+	 * @original coroutine that is running as the removal will end
 	 * up setting coro_running to NULL.
 	 */
 	old = coro_running;

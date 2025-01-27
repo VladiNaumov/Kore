@@ -41,7 +41,7 @@ init(int state)
 
 	printf("fixed_ptr: %p\n", (void *)fixed_ptr);
 
-	/* Attempt to lookup the original pointer. */
+	/* Attempt to lookup the @original pointer. */
 	if ((fixed_ptr = kore_mem_lookup(MEM_TAG_HELLO)) == NULL) {
 		/* Failed, grab a new chunk of memory and tag it. */
 		printf("  allocating fixed_ptr for the first time\n");
