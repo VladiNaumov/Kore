@@ -1,0 +1,322 @@
+# Kore Makefile
+
+# Основные переменные настройки
+CC?=cc                      # Компилятор по умолчанию (если не задан)
+DESTDIR?=                   # Базовый каталог для установки
+PREFIX?=/usr/local          # Каталог для установки по умолчанию
+OBJDIR?=obj                 # Каталог для объектных файлов
+KORE=kore                   # Основной бинарный файл Kore
+KODEV=kodev/kodev           # Инструмент kodev
+KOREPATH?=$(shell pwd)      # Путь к текущей директории
+KORE_CRYPTO?=crypto         # Используемая библиотека криптографии
+INSTALL_DIR=$(PREFIX)/bin   # Каталог для установки бинарных файлов
+MAN_DIR?=$(PREFIX)/share/man # Каталог для установки man-страниц
+SHARE_DIR=$(PREFIX)/share/kore # Общий каталог Kore
+INCLUDE_DIR=$(PREFIX)/include/kore # Каталог для заголовочных файлов
+TLS_BACKEND?=openssl        # Бэкенд TLS по умолчанию
+KORE_TMPDIR?=/tmp           # Временный каталог
+
+# Инструменты, которые будут сгенерированы
+TOOLS=	kore-serve
+
+# Промежуточные файлы сборки
+GENERATED=                  # Дополнительные файлы, которые будут генерироваться
+PLATFORM=platform.h         # Файл с платформозависимыми определениями
+VERSION=$(OBJDIR)/version.c # Файл с версией
+PYTHON_CURLOPT=misc/curl/python_curlopt.h # Файл с настройками для Python
+
+# Исходные файлы проекта
+S_SRC=	src/kore.c src/buf.c src/config.c src/connection.c \
+	src/domain.c src/filemap.c src/fileref.c src/json.c src/log.c \
+	src/mem.c src/msg.c src/module.c src/net.c src/pool.c src/runtime.c \
+	src/sha1.c src/sha2.c src/timer.c src/utils.c src/worker.c
+S_SRC+= src/tls_$(TLS_BACKEND).c  # Добавление TLS-бэкенда
+
+# Переменные для хранения включений и фич
+FEATURES=
+FEATURES_INC=
+
+# Флаги компилятора для обеспечения качества кода
+CFLAGS+=-Wall -Werror -Wstrict-prototypes -Wmissing-prototypes
+CFLAGS+=-Wmissing-declarations -Wshadow -Wpointer-arith -Wcast-qual
+CFLAGS+=-Wsign-compare -Iinclude/kore -I$(OBJDIR) -std=c99 -pedantic
+CFLAGS+=-Wtype-limits -fno-common
+CFLAGS+=-DPREFIX='"$(PREFIX)"' -fstack-protector-all
+
+# Флаги линковщика
+LDFLAGS+=-rdynamic
+
+# Настройки для OpenSSL как бэкенда TLS
+ifeq ("$(TLS_BACKEND)", "openssl")
+	S_SRC+=src/keymgr_openssl.c   # Добавление исходников для OpenSSL
+	CFLAGS+=-DTLS_BACKEND_OPENSSL # Установка флага компиляции для OpenSSL
+	FEATURES+=-DTLS_BACKEND_OPENSSL
+
+	ifneq ("$(OPENSSL_PATH)", "")
+		CFLAGS+=-I$(OPENSSL_PATH)/include
+		LDFLAGS+=-L$(OPENSSL_PATH)/lib -lssl -l$(KORE_CRYPTO)
+	else
+		LDFLAGS+=-lssl -l$(KORE_CRYPTO)
+	endif
+else
+ifneq ("$(ACME)", "")
+$(error ACME not supported under TLS backend $(TLS_BACKEND))
+endif
+endif
+
+# Опция для сборки с единым бинарным файлом
+ifneq ("$(KORE_SINGLE_BINARY)", "")
+	CFLAGS+=-DKORE_SINGLE_BINARY -DKORE_TMPDIR='"$(KORE_TMPDIR)"'
+	FEATURES+=-DKORE_SINGLE_BINARY
+endif
+
+# Отладочные флаги
+ifneq ("$(DEBUG)", "")
+	CFLAGS+=-g                    # Генерация отладочной информации
+	FEATURES+=-DKORE_DEBUG        # Определение для отладки
+endif
+
+# Оптимизация или отключение оптимизации
+ifneq ("$(NOOPT)", "")
+	CFLAGS+=-O0                   # Отключение оптимизации
+else
+	CFLAGS+=-O2                   # Включение оптимизации
+endif
+
+# Отключение использования sendfile
+ifneq ("$(NOSENDFILE)", "")
+	CFLAGS+=-DKORE_NO_SENDFILE
+endif
+
+# Отключение HTTP-режима
+ifneq ("$(NOHTTP)", "")
+	CFLAGS+=-DKORE_NO_HTTP        # Установка флага для отключения HTTP
+	FEATURES+=-DKORE_NO_HTTP
+else
+	# Добавление HTTP-ориентированных исходников
+	S_SRC+= src/auth.c src/accesslog.c src/http.c \
+		src/route.c src/validator.c src/websocket.c
+endif
+
+# PostgreSQL интеграция
+ifneq ("$(PGSQL)", "")
+\tS_SRC+=src/pgsql.c                           # Исходники для работы с PostgreSQL
+\tLDFLAGS+=-L$(shell pg_config --libdir) -lpq # Флаги для линковки библиотеки libpq
+\tCFLAGS+=-I$(shell pg_config --includedir) -DKORE_USE_PGSQL \
+\t    -DPGSQL_INCLUDE_PATH='"$(shell pg_config --includedir)"' # Пути для включения заголовков
+\tFEATURES+=-DKORE_USE_PGSQL                  # Определение для PostgreSQL
+\tFEATURES_INC+=-I$(shell pg_config --includedir)
+endif
+
+# Поддержка задач
+ifneq ("$(TASKS)", "")
+\tS_SRC+=src/tasks.c          # Исходники для задач
+\tLDFLAGS+=-lpthread          # Линковка pthread
+\tCFLAGS+=-DKORE_USE_TASKS    # Определение для задач
+\tFEATURES+=-DKORE_USE_TASKS
+endif
+
+# Поддержка JSON-RPC
+ifneq ("$(JSONRPC)", "")
+\tS_SRC+=src/jsonrpc.c        # Исходники для JSON-RPC
+\tLDFLAGS+=-lyajl             # Линковка YAJL
+\tCFLAGS+=-DKORE_USE_JSONRPC  # Определение для JSON-RPC
+\tFEATURES+=-DKORE_USE_JSONRPC
+endif
+
+# Поддержка Python
+ifneq ("$(PYTHON)", "")
+\tS_SRC+=src/python.c
+\tGENERATED+=$(PYTHON_CURLOPT)            # Генерируемые файлы
+\tKORE_PYTHON_LIB?=$(shell ./misc/python3-config.sh --ldflags) # Флаги линковки для Python
+\tKORE_PYTHON_INC?=$(shell ./misc/python3-config.sh --includes) # Пути для заголовков Python
+\tLDFLAGS+=$(KORE_PYTHON_LIB)
+\tCFLAGS+=$(KORE_PYTHON_INC) -DKORE_USE_PYTHON # Флаги для компиляции с Python
+\tFEATURES+=-DKORE_USE_PYTHON            # Определение для Python
+\tFEATURES_INC+=$(KORE_PYTHON_INC)
+endif
+
+# ОС-зависимые настройки
+OSNAME=$(shell uname -s | sed -e 's/[-_].*//g' | tr A-Z a-z)
+ifeq ("$(OSNAME)", "freebsd")
+\tKORE_CURL_LIB=-L/usr/local/lib -lcurl
+\tKORE_CURL_INC=-I/usr/local/include
+endif
+
+# Поддержка ACME
+ifneq ("$(ACME)", "")
+\tS_SRC+=src/acme.c              # Исходники для ACME
+\tCURL=1                        # Включение cURL
+\tCFLAGS+=-DKORE_USE_ACME        # Определение для ACME
+\tFEATURES+=-DKORE_USE_ACME
+endif
+
+# Поддержка cURL
+ifneq ("$(CURL)", "")
+\tS_SRC+=src/curl.c              # Исходники для cURL
+\tKORE_CURL_LIB?=$(shell curl-config --libs) # Линковка cURL
+\tKORE_CURL_INC?=$(shell curl-config --cflags) # Пути для заголовков cURL
+\tLDFLAGS+=$(KORE_CURL_LIB)
+\tCFLAGS+=$(KORE_CURL_INC) -DKORE_USE_CURL
+\tFEATURES+=-DKORE_USE_CURL      # Определение для cURL
+\tFEATURES_INC+=$(KORE_CURL_INC)
+endif
+
+# Настройки для санитайзеров
+ifneq ("$(SANITIZE)", "")
+\tCFLAGS+=-fsanitize=$(SANITIZE)
+\tLDFLAGS+=-fsanitize=$(SANITIZE)
+endif
+
+# Платформозависимые настройки
+ifeq ("$(OSNAME)", "darwin")
+\tifeq ("$(TLS_BACKEND)", "openssl")
+\t\tOSSL_INCL=$(shell pkg-config openssl --cflags)
+\t\tCFLAGS+=$(OSSL_INCL)
+\t\tLDFLAGS+=$(shell pkg-config openssl --libs)
+\t\tFEATURES_INC+=$(OSSL_INCL)
+\tendif
+\tS_SRC+=src/bsd.c
+else ifeq ("$(OSNAME)", "linux")
+\tCFLAGS+=-D_GNU_SOURCE=1 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+\tLDFLAGS+=-ldl
+\tS_SRC+=src/linux.c src/seccomp.c
+else
+\tS_SRC+=src/bsd.c
+\tifneq ("$(JSONRPC)", "")
+\t\tCFLAGS+=-I/usr/local/include
+\t\tLDFLAGS+=-L/usr/local/lib
+\tendif
+endif
+
+S_OBJS=	$(S_SRC:src/%.c=$(OBJDIR)/%.o)  # Список объектных файлов из исходных .c файлов
+S_OBJS+=$(OBJDIR)/version.o  # Добавляем объектный файл версии
+
+all: $(PLATFORM) $(GENERATED) $(VERSION) $(KORE) $(KODEV)  # Главная цель, собирает платформу, версию, Kore и Kodev
+
+$(PLATFORM): $(OBJDIR) force  # Цель для сборки платформы
+	@if [ -f misc/$(OSNAME)-platform.sh ]; then \
+		misc/$(OSNAME)-platform.sh > $(OBJDIR)/$(PLATFORM) ; \  # Запуск платформенного скрипта
+	fi
+
+$(PYTHON_CURLOPT): $(OBJDIR) force  # Копирование Python-конфигурации
+	@cp $(PYTHON_CURLOPT) $(OBJDIR)
+
+$(VERSION): $(OBJDIR) force  # Генерация версии проекта
+	@if [ -d .git ]; then \
+		GIT_REVISION=`git rev-parse --short=8 HEAD`; \
+		GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`; \
+		rm -f $(VERSION); \
+		printf "const char *kore_version = \"%s-%s\";\n" \
+		    $$GIT_BRANCH $$GIT_REVISION > $(VERSION); \
+	elif [ -f RELEASE ]; then \
+		printf "const char *kore_version = \"%s\";\n" \
+		    `cat RELEASE` > $(VERSION); \
+	else \
+		echo "No version information found (no .git or RELEASE)"; \
+		exit 1; \
+	fi
+	@printf "const char *kore_build_date = \"%s\";\n" \
+	    `date +"%Y-%m-%d"` >> $(VERSION);
+
+$(KODEV): src/cli.c  # Сборка Kodev
+	$(MAKE) -C kodev
+
+$(KORE): $(OBJDIR) $(S_OBJS)  # Сборка основного проекта Kore
+	$(CC) $(S_OBJS) $(LDFLAGS) -o $(KORE)
+	@echo $(LDFLAGS) > kore.linker  # Запись флагов линковщика
+	@echo $(FEATURES) $(FEATURES_INC) > kore.features  # Запись фич в файл
+
+objects: $(OBJDIR) $(PLATFORM) $(GENERATED) $(S_OBJS)  # Создание объектных файлов
+	@echo $(LDFLAGS) > $(OBJDIR)/ldflags
+	@echo "$(FEATURES) $(FEATURES_INC)" > $(OBJDIR)/features
+
+$(OBJDIR):  # Создание директории для объектных файлов
+	@mkdir -p $(OBJDIR)
+
+install:  # Установка проекта
+	mkdir -p $(DESTDIR)$(SHARE_DIR)
+	mkdir -p $(DESTDIR)$(INCLUDE_DIR)
+	mkdir -p $(DESTDIR)$(INSTALL_DIR)
+	mkdir -p $(DESTDIR)$(MAN_DIR)/man1
+	install -m 644 share/man/kodev.1 $(DESTDIR)$(MAN_DIR)/man1/kodev.1
+	install -m 555 $(KORE) $(DESTDIR)$(INSTALL_DIR)/$(KORE)
+	install -m 644 kore.features $(DESTDIR)$(SHARE_DIR)/features
+	install -m 644 kore.linker $(DESTDIR)$(SHARE_DIR)/linker
+	install -m 644 include/kore/*.h $(DESTDIR)$(INCLUDE_DIR)
+	install -m 644 misc/ffdhe4096.pem $(DESTDIR)$(SHARE_DIR)/ffdhe4096.pem
+	$(MAKE) -C kodev install
+	$(MAKE) install-sources
+
+install-sources:  # Установка исходных файлов
+	@mkdir -p $(DESTDIR)$(SHARE_DIR)
+	@cp Makefile $(DESTDIR)$(SHARE_DIR)
+	@cp -R src $(DESTDIR)$(SHARE_DIR)
+	@cp -R include $(DESTDIR)$(SHARE_DIR)
+	@cp -R misc $(DESTDIR)$(SHARE_DIR)
+	@if [ -d .git ]; then \
+		GIT_REVISION=`git rev-parse --short=8 HEAD`; \
+		GIT_BRANCH=`git rev-parse --abbrev-ref HEAD`; \
+		rm -f $(VERSION); \
+		echo "$$GIT_BRANCH-$$GIT_REVISION" > \
+		    $(DESTDIR)$(SHARE_DIR)/RELEASE; \
+	elif [ -f RELEASE ]; then \
+		cp RELEASE $(DESTDIR)$(SHARE_DIR); \
+	else \
+		echo "No version information found (no .git or RELEASE)"; \
+		exit 1; \
+	fi
+
+uninstall:  # Удаление установленных файлов
+	rm -f $(DESTDIR)$(INSTALL_DIR)/$(KORE)
+	rm -rf $(DESTDIR)$(INCLUDE_DIR)
+	rm -rf $(DESTDIR)$(SHARE_DIR)
+	$(MAKE) -C kodev uninstall
+
+tools-build: $(KODEV)  # Сборка инструментов
+	for t in $(TOOLS); do \
+		cd tools/$$t; \
+		env \
+		    KODEV_OUTPUT=$(KOREPATH) \
+		    KORE_SOURCE=$(KOREPATH) \
+		    KORE_BUILD_FLAVOR=$(OSNAME) \
+		    $(KOREPATH)/$(KODEV) build; \
+		cd $(KOREPATH); \
+	done
+
+tools-clean: $(KODEV)  # Очистка инструментов
+	for t in $(TOOLS); do \
+		cd tools/$$t; \
+		$(KOREPATH)/$(KODEV) clean; \
+		cd $(KOREPATH); \
+	done
+
+tools-install:  # Установка инструментов
+	mkdir -p $(DESTDIR)$(INSTALL_DIR)
+	for t in $(TOOLS); do \
+		install -m 555 $$t $(DESTDIR)$(INSTALL_DIR)/$$t; \
+	done
+
+$(OBJDIR)/%.o: src/%.c  # Правило для компиляции .c файлов в объектные файлы
+	$(CC) $(CFLAGS) -c $< -o $@
+
+src/kore.c: $(VERSION)  # Зависимость для kore.c
+
+src/python.c: $(PYTHON_CURLOPT)  # Зависимость для python.c
+
+src/seccomp.c: $(PLATFORM)  # Зависимость для seccomp.c
+
+clean:  # Очистка проекта
+	rm -f $(VERSION)
+	find . -type f -name \*.o -exec rm {} \;  # Удаление всех объектных файлов
+	rm -rf $(KORE) $(OBJDIR) kore.features kore.linker
+	$(MAKE) -C kodev clean
+
+releng-build-examples:  # Сборка релизных примеров
+	rm -rf /tmp/kore_releng
+	$(MAKE) clean
+	$(MAKE) PYTHON=1 PGSQL=1 TASKS=1 PREFIX=/tmp/kore_releng
+	$(MAKE) install PREFIX=/tmp/kore_releng
+	$(MAKE) -C examples
+
+.PHONY: all clean force  # Указание на псевдонимы целей
