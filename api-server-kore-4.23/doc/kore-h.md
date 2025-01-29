@@ -80,17 +80,10 @@ typedef void		KORE_PRIVATE_KEY;
 ```
 Используемая длина RSA-ключа — **4096 бит**.
 
-```c
-#define KORE_TLS_VERSION_1_3	0
-#define KORE_TLS_VERSION_1_2	1
-#define KORE_TLS_VERSION_BOTH	2
-```
-Определяются поддерживаемые версии TLS.
-
----
-
 ### 7. **Определения кодов завершения**
+
 ```c
+
 #define KORE_QUIT_NONE		-1
 #define KORE_QUIT_NORMAL	0
 #define KORE_QUIT_FATAL		1
@@ -99,29 +92,42 @@ typedef void		KORE_PRIVATE_KEY;
 - `KORE_QUIT_NORMAL` (0) — сервер завершился нормально
 - `KORE_QUIT_FATAL` (1) — критическая ошибка
 
----
+```c
 
+```
 ### 8. **Базовые макросы**
+
 ```c
 #define KORE_RESULT_ERROR	0
 #define KORE_RESULT_OK		1
 #define KORE_RESULT_RETRY	2
 ```
+
 Коды возврата для функций:
 - Ошибка
 - Успешно
 - Повторить операцию
 
 ```c
+#define KORE_TLS_VERSION_1_3	0
+#define KORE_TLS_VERSION_1_2	1
+#define KORE_TLS_VERSION_BOTH	2
+```
+Определяются поддерживаемые версии TLS.
+
+### 9. **Определения кодов завершения**
+
+```c
+
 #define KORE_WAIT_INFINITE	(u_int64_t)-1
 #define KORE_RESEED_TIME	(1800 * 1000)
 ```
 - `KORE_WAIT_INFINITE` означает бесконечное ожидание.
 - `KORE_RESEED_TIME` — время для перегенерации случайных чисел (**1800 секунд** = 30 минут).
 
----
 
-### 9. **Макросы для ошибок**
+### 10. **Макросы для ошибок**
+
 ```c
 #define errno_s			strerror(errno)
 #define ssl_errno_s		ERR_error_string(ERR_get_error(), NULL)
@@ -130,7 +136,7 @@ typedef void		KORE_PRIVATE_KEY;
 
 ---
 
-### 10. **Файлы и пути**
+### 11. **Файлы и пути**
 ```c
 #define KORE_PIDFILE_DEFAULT		"kore.pid"
 #define KORE_DHPARAM_PATH		PREFIX "/share/kore/ffdhe4096.pem"
@@ -140,7 +146,7 @@ typedef void		KORE_PRIVATE_KEY;
 
 ---
 
-### 11. **Структуры данных**
+### 12. **Структуры данных**
 #### **`kore_fileref`** — файловые ссылки
 ```c
 struct kore_fileref {
@@ -190,7 +196,7 @@ struct netbuf {
 
 ---
 
-### 12. **Классификация соединений**
+### 13. **Классификация соединений**
 ```c
 #define KORE_TYPE_LISTENER	1
 #define KORE_TYPE_CONNECTION	2
@@ -206,7 +212,7 @@ struct netbuf {
 
 ---
 
-### 13. **Коды событий**
+### 14. **Коды событий**
 ```c
 #define KORE_EVENT_READ		0x01
 #define KORE_EVENT_WRITE	0x02
@@ -219,7 +225,7 @@ struct netbuf {
 
 ---
 
-### 14. **WebSocket**
+### 15. **WebSocket**
 ```c
 #define WEBSOCKET_OP_TEXT	0x01
 #define WEBSOCKET_OP_BINARY	0x02
@@ -770,441 +776,216 @@ extern struct kore_server_list kore_servers; // Список серверов
 
 Ты прислал два больших фрагмента кода из Kore, которые связаны с **работой JSON**, **процессами (воркерами)** и **межпроцессным взаимодействием (IPC)**. Давай разберём их подробно.
 
----
-
-# **1. Работа с JSON в Kore**
-(Разбор первой части кода)
-
-## **1.1. Типы данных JSON**
-В Kore JSON представлен разными типами, которые кодируются битовыми флагами:
-
-```c
-#define KORE_JSON_TYPE_OBJECT      0x0001  // JSON-объект { ... }
-#define KORE_JSON_TYPE_ARRAY       0x0002  // JSON-массив [ ... ]
-#define KORE_JSON_TYPE_STRING      0x0004  // Строка "..."
-#define KORE_JSON_TYPE_NUMBER      0x0008  // Число (целое или с плавающей точкой)
-#define KORE_JSON_TYPE_LITERAL     0x0010  // Логические значения (true, false, null)
-#define KORE_JSON_TYPE_INTEGER     0x0020  // Целочисленное значение (int64_t)
-#define KORE_JSON_TYPE_INTEGER_U64 0x0040  // Беззнаковое целочисленное значение (uint64_t)
-```
-Эти флаги используются при парсинге и создании JSON-объектов.
-
-Также определены **константы для литералов**:
-```c
-#define KORE_JSON_FALSE  0  // Логическое false
-#define KORE_JSON_TRUE   1  // Логическое true
-#define KORE_JSON_NULL   2  // null
-```
-
-Максимальная глубина вложенности JSON (чтобы не было рекурсивных атак):
-```c
-#define KORE_JSON_DEPTH_MAX  10
-```
-
-## **1.2. Ошибки при обработке JSON**
-```c
-#define KORE_JSON_ERR_NONE             0  // Нет ошибки
-#define KORE_JSON_ERR_INVALID_OBJECT    1  // Ошибка в объекте
-#define KORE_JSON_ERR_INVALID_ARRAY     2  // Ошибка в массиве
-#define KORE_JSON_ERR_INVALID_STRING    3  // Ошибка в строке
-#define KORE_JSON_ERR_INVALID_NUMBER    4  // Ошибка в числе
-#define KORE_JSON_ERR_INVALID_LITERAL   5  // Ошибка в литерале (true, false, null)
-#define KORE_JSON_ERR_DEPTH             6  // Превышена максимальная глубина
-#define KORE_JSON_ERR_EOF               7  // Неожиданный конец файла
-#define KORE_JSON_ERR_INVALID_JSON      8  // JSON повреждён
-#define KORE_JSON_ERR_INVALID_SEARCH    9  // Ошибка при поиске элемента
-#define KORE_JSON_ERR_NOT_FOUND         10 // Элемент не найден
-#define KORE_JSON_ERR_TYPE_MISMATCH     11 // Несовпадение типов
-```
-Эти ошибки используются при обработке JSON.
-
-## **1.3. Поиск и создание JSON-объектов**
-```c
-#define kore_json_find_object(j, p)    kore_json_find(j, p, KORE_JSON_TYPE_OBJECT)
-#define kore_json_find_array(j, p)     kore_json_find(j, p, KORE_JSON_TYPE_ARRAY)
-#define kore_json_find_string(j, p)    kore_json_find(j, p, KORE_JSON_TYPE_STRING)
-```
-Макросы для поиска элементов JSON.
-
-```c
-#define kore_json_create_object(o, n) kore_json_create_item(o, n, KORE_JSON_TYPE_OBJECT)
-#define kore_json_create_array(o, n) kore_json_create_item(o, n, KORE_JSON_TYPE_ARRAY)
-#define kore_json_create_string(o, n, v) kore_json_create_item(o, n, KORE_JSON_TYPE_STRING, v)
-```
-Макросы для создания новых JSON-объектов.
-
-## **1.4. Структура данных JSON**
-```c
-struct kore_json {
-    const u_int8_t   *data;   // Данные JSON
-    int              depth;   // Текущая глубина парсинга
-    size_t           length;  // Длина JSON-данных
-    size_t           offset;  // Текущий сдвиг при парсинге
-    struct kore_buf  tmpbuf;  // Временный буфер
-    struct kore_json_item *root; // Корневой элемент
-};
-```
-Это основная структура для парсинга JSON.
-
----
-
-# **2. Работа процессов и IPC**
-(Разбор второй части кода)
-
-## **2.1. Типы процессов**
-```c
-#define KORE_WORKER_KEYMGR_IDX  0  // Индекс процесса Key Manager
-#define KORE_WORKER_ACME_IDX    1  // Индекс процесса ACME (сертификаты)
-#define KORE_WORKER_BASE        2  // Обычные воркеры
-#define KORE_WORKER_KEYMGR      2000 // Процесс Key Manager
-#define KORE_WORKER_ACME        2001 // Процесс ACME
-#define KORE_WORKER_MAX         UCHAR_MAX // Максимальное количество воркеров
-```
-- **KEYMGR (2000)** – процесс управления ключами (SSL/TLS).
-- **ACME (2001)** – процесс автоматического обновления сертификатов.
-- **BASE (2)** – основные рабочие процессы.
-
-## **2.2. Политика работы процессов**
-```c
-#define KORE_WORKER_POLICY_RESTART   1  // Перезапуск при завершении
-#define KORE_WORKER_POLICY_TERMINATE 2  // Завершение без перезапуска
-```
-
-## **2.3. IPC: сообщения между процессами**
-```c
-struct kore_msg {
-    u_int8_t id;      // ID сообщения
-    u_int16_t src;    // Отправитель
-    u_int16_t dst;    // Получатель
-    size_t length;    // Длина данных
-};
-```
-Используется для передачи сообщений между процессами.
-
-```c
-#define KORE_MSG_WEBSOCKET      1  // WebSocket сообщение
-#define KORE_MSG_KEYMGR_REQ     2  // Запрос к менеджеру ключей
-#define KORE_MSG_KEYMGR_RESP    3  // Ответ от менеджера ключей
-#define KORE_MSG_SHUTDOWN       4  // Завершение работы
-#define KORE_MSG_CERTIFICATE    7  // Сертификат
-#define KORE_MSG_CERTIFICATE_REQ 8 // Запрос сертификата
-```
-Некоторые сообщения в IPC.
-
-```c
-#define KORE_MSG_PARENT     1000 // Сообщение главному процессу
-#define KORE_MSG_WORKER_ALL 1001 // Сообщение всем воркерам
-```
-Предопределённые получатели.
-
----
-
-## **3. Глобальные переменные**
-```c
-extern pid_t kore_pid;   // PID главного процесса
-extern int   kore_quit;  // Флаг завершения работы
-extern int   kore_quiet; // Флаг тихого режима
-extern int   skip_chroot; // Отключение chroot
-extern int   skip_runas; // Отключение смены пользователя
-extern int   kore_foreground; // Запуск в foreground-режиме
-extern char *kore_pidfile; // Файл с PID процесса
-```
-Глобальные переменные, управляющие процессом Kore.
-
-```c
-extern u_int8_t  worker_count;          // Количество воркеров
-extern u_int32_t worker_max_connections; // Максимальное число соединений
-extern u_int32_t kore_socket_backlog;   // Очередь входящих соединений
-```
-Переменные, связанные с воркерами и сервером.
-
----
-
-# **Вывод**
-1. **JSON в Kore**
-    - Парсинг JSON реализован через `kore_json`.
-    - Есть поддержка поиска и создания объектов.
-    - Используются битовые флаги для типов данных.
-
-2. **Работа процессов и IPC**
-    - Kore использует **воркеры** для обработки запросов.
-    - **Key Manager (2000)** управляет ключами.
-    - **ACME (2001)** обновляет сертификаты.
-    - IPC реализован через структуру `kore_msg`.
-    - Сообщения можно отправлять главному процессу (`KORE_MSG_PARENT`) или всем воркерам (`KORE_MSG_WORKER_ALL`).
-
-
-
----
-
-# **1. Определения процессов**
-```c
-#define KORE_WORKER_KEYMGR_IDX  0
-#define KORE_WORKER_ACME_IDX    1
-#define KORE_WORKER_BASE        2
-#define KORE_WORKER_KEYMGR      2000
-#define KORE_WORKER_ACME        2001
-#define KORE_WORKER_MAX         UCHAR_MAX
-```
-- **KORE_WORKER_KEYMGR_IDX (0)** – индекс процесса **Key Manager**, который управляет сертификатами и ключами.
-- **KORE_WORKER_ACME_IDX (1)** – индекс процесса **ACME**, который занимается получением и обновлением сертификатов.
-- **KORE_WORKER_BASE (2)** – все обычные воркеры.
-- **KORE_WORKER_KEYMGR (2000)** – процесс **Key Manager**.
-- **KORE_WORKER_ACME (2001)** – процесс **ACME**.
-- **KORE_WORKER_MAX (UCHAR_MAX)** – максимальное количество воркеров.
-
-Это используется для управления разными типами процессов в Kore.
-
----
-
-# **2. Политики работы воркеров**
-```c
-#define KORE_WORKER_POLICY_RESTART   1
-#define KORE_WORKER_POLICY_TERMINATE 2
-```
-- **KORE_WORKER_POLICY_RESTART** – процесс будет перезапущен, если завершится.
-- **KORE_WORKER_POLICY_TERMINATE** – процесс не перезапускается при завершении.
-
-Это задаёт стратегию работы воркеров.
-
----
-
-# **3. IPC (межпроцессное взаимодействие)**
-## **3.1. Определение сообщений**
-```c
-#define KORE_MSG_WEBSOCKET      1
-#define KORE_MSG_KEYMGR_REQ     2
-#define KORE_MSG_KEYMGR_RESP    3
-#define KORE_MSG_SHUTDOWN       4
-#define KORE_MSG_ENTROPY_REQ    5
-#define KORE_MSG_ENTROPY_RESP   6
-#define KORE_MSG_CERTIFICATE    7
-#define KORE_MSG_CERTIFICATE_REQ 8
-#define KORE_MSG_CRL            9
-#define KORE_MSG_ACCEPT_AVAILABLE 10
-#define KORE_PYTHON_SEND_OBJ    11
-#define KORE_MSG_WORKER_LOG     12
-#define KORE_MSG_FATALX         13
-#define KORE_MSG_ACME_BASE      100
-#define KORE_MSG_APP_BASE       200
-```
-Это идентификаторы сообщений, которые могут передаваться между процессами:
-- **KORE_MSG_WEBSOCKET (1)** – сообщение для WebSocket.
-- **KORE_MSG_KEYMGR_REQ (2)** – запрос к **Key Manager**.
-- **KORE_MSG_KEYMGR_RESP (3)** – ответ от **Key Manager**.
-- **KORE_MSG_SHUTDOWN (4)** – сообщение о завершении работы.
-- **KORE_MSG_CERTIFICATE (7)** – сообщение с сертификатом.
-- **KORE_MSG_CERTIFICATE_REQ (8)** – запрос на сертификат.
-- **KORE_MSG_WORKER_LOG (12)** – логирование воркеров.
-- **KORE_MSG_APP_BASE (200)** – сообщения для приложений (начинаются с 201).
-
----
-
-## **3.2. Куда можно отправлять сообщения**
-```c
-#define KORE_MSG_PARENT     1000
-#define KORE_MSG_WORKER_ALL 1001
-```
-- **KORE_MSG_PARENT (1000)** – отправить сообщение главному процессу.
-- **KORE_MSG_WORKER_ALL (1001)** – отправить сообщение всем воркерам.
-
----
-
-# **4. Структуры данных**
-## **4.1. Структура сообщения между процессами**
-```c
-struct kore_msg {
-    u_int8_t    id;     // ID сообщения
-    u_int16_t   src;    // Отправитель (номер процесса)
-    u_int16_t   dst;    // Получатель (номер процесса)
-    size_t      length; // Длина данных
-};
-```
-- **id** – тип сообщения (например, `KORE_MSG_WEBSOCKET`).
-- **src** – ID процесса-отправителя.
-- **dst** – ID процесса-получателя.
-- **length** – размер данных.
-
-Эта структура используется для передачи данных между процессами.
-
----
-
-## **4.2. Запрос к Key Manager**
-```c
-struct kore_keyreq {
-    int        padding;
-    char       domain[KORE_DOMAINNAME_LEN + 1];
-    size_t     data_len;
-    u_int8_t   data[];
-};
-```
-- **padding** – просто отступ (может быть не использоваться).
-- **domain** – имя домена (например, `"example.com"`).
-- **data_len** – размер данных.
-- **data** – сами данные.
-
-Эта структура используется для работы с SSL/TLS сертификатами.
-
----
-
-## **4.3. Передача сертификатов**
-```c
-struct kore_x509_msg {
-    char       domain[KORE_DOMAINNAME_LEN + 1];
-    size_t     data_len;
-    u_int8_t   data[];
-};
-```
-Очень похожа на `kore_keyreq`, но предназначена **для сертификатов**.
-
----
-
-# **5. Глобальные переменные**
-```c
-extern pid_t   kore_pid;   // PID главного процесса
-extern int     kore_quit;  // Флаг завершения работы
-extern int     kore_quiet; // Флаг "тихого" режима
-extern int     skip_chroot; // Отключение chroot
-extern int     skip_runas;  // Отключение смены пользователя
-extern int     kore_foreground; // Запуск в foreground-режиме
-extern char    *kore_pidfile; // Путь к файлу с PID
-```
-Эти переменные управляют работой Kore.
-
-```c
-extern u_int8_t  worker_count;          // Количество воркеров
-extern u_int32_t worker_max_connections; // Максимальное число соединений
-extern u_int32_t kore_socket_backlog;   // Очередь входящих соединений
-```
-Эти переменные отвечают за работу серверной части.
-
----
-
-# **Вывод**
-1. **Процессы**
-    - Есть три типа: **Key Manager (2000), ACME (2001), обычные воркеры (2)**.
-    - Воркеры могут **перезапускаться или завершаться** после работы.
-
-2. **IPC (межпроцессное взаимодействие)**
-    - Сообщения передаются между процессами с помощью структуры `kore_msg`.
-    - Можно **отправлять** запросы **Key Manager-у** (`KORE_MSG_KEYMGR_REQ`) и получать ответы (`KORE_MSG_KEYMGR_RESP`).
-    - Есть **запросы на сертификаты** (`KORE_MSG_CERTIFICATE_REQ`).
-
-3. **Глобальные переменные**
-    - Определяют настройки сервера (`worker_count`, `worker_max_connections`).
-    - Управляют **логикой работы** (`kore_quit`, `kore_foreground`).
-
-Этот код — основа для **управления процессами и IPC** в Kore.
-
-
+--
 
 Дальше идет список экспортируемых функций он содержит большое количество различных функций для работы
 с сервером, обработкой соединений, TLS, логированием, парсингом данных и многими другими аспектами. 
 Вот их краткое описание по категориям:
 
-### 1. **Основные серверные функции**:
-- **kore_signal**: обработка сигналов.
-- **kore_shutdown**: завершение работы сервера.
-- **kore_server_create**: создание нового сервера.
-- **kore_server_lookup**: поиск сервера по имени.
-- **kore_server_closeall**: закрытие всех серверных соединений.
-- **kore_server_cleanup**: очистка ресурсов сервера.
-- **kore_server_free**: освобождение ресурсов сервера.
 
-### 2. **Работа с соединениями**:
-- **kore_connection_init**: инициализация соединений.
-- **kore_connection_cleanup**: очистка соединений.
-- **kore_connection_accept**: принятие соединений.
-- **kore_connection_disconnect**: отключение соединения.
-- **kore_connection_start_idletimer**: запуск таймера бездействия для соединения.
-- **kore_connection_check_timeout**: проверка тайм-аута соединения.
 
-### 3. **Обработка TLS/SSL**:
-- **kore_tls_init**: инициализация TLS.
-- **kore_tls_cleanup**: очистка TLS.
-- **kore_tls_dh_check**: проверка диффи-Хеллмана.
-- **kore_tls_supported**: проверка поддержки TLS.
-- **kore_tls_keymgr_init**: инициализация менеджера ключей TLS.
-- **kore_tls_connection_accept**: принятие TLS-соединения.
-- **kore_tls_write**: отправка данных через TLS.
+Этот фрагмент кода представляет собой часть исходного кода библиотеки Kore. Kore — это минималистичный фреймворк для создания высокопроизводительных серверных приложений, разработанный для работы с C. Рассмотрим каждую часть:
 
-### 4. **Обработка сообщений**:
-- **kore_msg_init**: инициализация системы сообщений.
-- **kore_msg_send**: отправка сообщения.
-- **kore_msg_register**: регистрация обработчика сообщений.
+### 1. **Основные функции Kore**:
+- **kore_signal()**: Обрабатывает сигналы, например, от операционной системы.
+- **kore_shutdown()**: Завершает работу сервера.
+- **kore_signal_trap()**: Устанавливает обработчик для ловли сигналов.
+- **kore_signal_setup()**: Настроивает сигнализацию.
+- **kore_proctitle()**: Устанавливает название процесса.
+- **kore_default_getopt()**: Разбирает параметры командной строки.
 
-### 5. **Обработка файлов и маршрутов**:
-- **kore_filemap_init**: инициализация карты файлов.
-- **kore_filemap_resolve_paths**: разрешение путей файлов.
-- **kore_route_create**: создание маршрута.
-- **kore_route_lookup**: поиск маршрута.
+### 2. **Работа с серверами**:
+- **kore_server_create()**: Создаёт новый сервер.
+- **kore_server_lookup()**: Ищет сервер по имени.
+- **kore_server_closeall()**: Закрывает все соединения.
+- **kore_server_cleanup()**: Очистка после работы сервера.
+- **kore_server_free()**: Освобождает ресурсы сервера.
+- **kore_server_finalize()**: Завершается работа сервера.
 
-### 6. **Логирование**:
-- **kore_log_init**: инициализация логирования.
-- **kore_log_file**: логирование в файл.
-- **kore_accesslog_init**: инициализация логирования доступа.
-- **kore_accesslog_run**: выполнение логирования доступа.
+### 3. **Работа с прослушивателями (listeners)**:
+- **kore_listener_create()**: Создаёт прослушиватель для сервера.
+- **kore_listener_lookup()**: Ищет прослушиватель по имени.
+- **kore_listener_free()**: Освобождает ресурсы прослушивателя.
+- **kore_listener_init()**: Инициализирует прослушиватель для порта или сокета.
 
-### 7. **Память и пул памяти**:
-- **kore_malloc**: выделение памяти.
-- **kore_free**: освобождение памяти.
-- **kore_pool_get**: получение из пула памяти.
-- **kore_pool_put**: возвращение в пул памяти.
+### 4. **Работа с сокетами**:
+- **kore_sockopt()**: Настройка опций сокетов.
+- **kore_server_bind()**: Привязка сервера к порту.
+- **kore_server_bind_unix()**: Привязка сервера к Unix-сокету.
 
-### 8. **Работа с JSON**:
-- **kore_json_parse**: парсинг JSON.
-- **kore_json_cleanup**: очистка JSON.
-- **kore_json_create_item**: создание элемента JSON.
-- **kore_json_find**: поиск элемента в JSON.
+### 5. **Работа с воркерами**:
+- **kore_worker_spawn()**: Запускает новый воркер.
+- **kore_worker_shutdown()**: Завершается работа воркера.
+- **kore_worker_make_busy()**: Указывает воркеру, что он занят.
+- **kore_worker_init()**: Инициализирует воркера.
 
-### 9. **Таймеры**:
-- **kore_timer_init**: инициализация таймеров.
-- **kore_timer_run**: запуск таймеров.
-- **kore_timer_add**: добавление нового таймера.
+### 6. **Платформенные функции**:
+- **kore_platform_init()**: Инициализация для платформы (Linux или BSD).
+- **kore_platform_event_init()**: Инициализация событий для платформы.
+- **kore_platform_event_wait()**: Ожидание события на платформе.
+- **kore_platform_event_all()**: Обработка всех событий на платформе.
 
-### 10. **Сетевые функции**:
-- **net_init**: инициализация сетевых функций.
-- **net_send**: отправка данных через сеть.
-- **net_recv**: получение данных из сети.
+### 7. **Системные функции для безопасности и производительности**:
+- **kore_platform_sandbox()**: Создаёт песочницу для безопасности.
+- **kore_platform_pledge()**: Платформа ограничивает права программы (для безопасности).
+- **kore_platform_sendfile()**: Отправка файла напрямую через сокет.
+- **kore_platform_worker_setcpu()**: Устанавливает процессор для воркера.
 
-### 11. **Платформенные функции (для разных ОС)**:
-- **kore_platform_init**: инициализация платформенных функций.
-- **kore_platform_sandbox**: создание песочницы.
-- **kore_platform_event_init**: инициализация обработки событий.
+Этот фрагмент кода продолжает описание функций библиотеки Kore, но теперь они касаются работы с TLS (Transport Layer Security), аутентификацией, логированием, таймерами, соединениями и конфигурационными файлами. Давайте разберём:
 
-### 12. **Функции для работы с веб-сокетами**:
-- **kore_websocket_handshake**: выполнение хэндшейка для веб-сокетов.
-- **kore_websocket_send**: отправка данных через веб-сокет.
-- **kore_websocket_broadcast**: широковещательная отправка через веб-сокет.
+### 1. **TLS (Transport Layer Security)**:
+- **kore_tls_init()**: Инициализация TLS (шифрования).
+- **kore_tls_cleanup()**: Завершение работы с TLS.
+- **kore_tls_dh_check()**: Проверка поддержки диффи-Хеллмана (используется для обмена ключами).
+- **kore_tls_supported()**: Проверка, поддерживается ли TLS.
+- **kore_tls_version_set()**: Установка версии TLS.
+- **kore_tls_keymgr_init()**: Инициализация управления ключами TLS.
+- **kore_tls_dh_load()**: Загрузка параметров Диффи-Хеллмана.
+- **kore_tls_seed()**: Инициализация случайных данных для TLS.
+- **kore_tls_ciphersuite_set()**: Установка набора шифров для TLS.
+- **kore_tls_read()**: Чтение данных через TLS-соединение.
+- **kore_tls_write()**: Запись данных через TLS-соединение.
+- **kore_tls_connection_accept()**: Принятие нового TLS-соединения.
+- **kore_tls_connection_cleanup()**: Очистка после работы с TLS-соединением.
+- **kore_tls_domain_setup()**: Настройка TLS для домена.
+- **kore_tls_rsakey_load()**: Загрузка RSA-ключа.
+- **kore_tls_rsakey_generate()**: Генерация RSA-ключа.
+- **kore_tls_x509_data()**: Получение данных X.509 сертификата.
+- **kore_tls_x509_issuer_name()**: Получение имени издателя X.509 сертификата.
+- **kore_tls_x509_subject_name()**: Получение имени субъекта X.509 сертификата.
+- **kore_tls_x509name_foreach()**: Итерация по элементам X.509 имени.
 
-### 13. **Функции для работы с авторизацией**:
-- **kore_auth_run**: запуск процесса авторизации.
-- **kore_auth_cookie**: работа с cookie для авторизации.
-- **kore_auth_request**: обработка запроса для авторизации.
+### 2. **Аутентификация (auth.c)**:
+- **kore_auth_run()**: Выполнение аутентификации для HTTP-запроса.
+- **kore_auth_cookie()**: Аутентификация по cookie.
+- **kore_auth_header()**: Аутентификация по заголовкам HTTP.
+- **kore_auth_request()**: Аутентификация для HTTP-запроса.
+- **kore_auth_init()**: Инициализация аутентификации.
+- **kore_auth_new()**: Создание нового механизма аутентификации.
+- **kore_auth_lookup()**: Поиск механизма аутентификации по имени.
 
-### 14. **Функции для работы с доменами и модулями**:
-- **kore_domain_new**: создание нового домена.
-- **kore_domain_lookup**: поиск домена.
-- **kore_module_reload**: перезагрузка модуля.
+### 3. **Таймеры (timer.c)**:
+- **kore_timer_init()**: Инициализация таймеров.
+- **kore_timer_run()**: Запуск таймера.
+- **kore_timer_next_run()**: Определение времени следующего срабатывания таймера.
+- **kore_timer_remove()**: Удаление таймера.
+- **kore_timer_add()**: Добавление нового таймера.
 
-### 15. **Работа с ключами**:
-- **kore_keymgr_run**: выполнение работы менеджера ключей.
-- **kore_keymgr_cleanup**: очистка менеджера ключей.
+### 4. **Соединения (connection.c)**:
+- **kore_connection_init()**: Инициализация соединений.
+- **kore_connection_cleanup()**: Очистка после работы с соединениями.
+- **kore_connection_prune()**: Очистка соединений, которые больше не используются.
+- **kore_connection_new()**: Создание нового соединения.
+- **kore_connection_event()**: Обработка событий для соединений.
+- **kore_connection_nonblock()**: Установка неблокирующего режима для соединения.
+- **kore_connection_check_timeout()**: Проверка на тайм-аут соединения.
+- **kore_connection_handle()**: Обработка соединения.
+- **kore_connection_remove()**: Удаление соединения.
+- **kore_connection_disconnect()**: Отключение соединения.
+- **kore_connection_start_idletimer()**: Запуск таймера для отслеживания неактивных соединений.
+- **kore_connection_stop_idletimer()**: Остановка таймера для неактивных соединений.
+- **kore_connection_check_idletimer()**: Проверка таймера на неактивное соединение.
+- **kore_connection_accept()**: Принятие соединения.
 
-### 16. **Обработка ошибок**:
-- **fatal**: завершение работы с ошибкой.
-- **fatalx**: завершение работы с ошибкой без возврата.
+### 5. **Логирование (accesslog.c)**:
+- **kore_accesslog_init()**: Инициализация логирования.
+- **kore_accesslog_run()**: Запуск процесса сбора логов.
+- **kore_accesslog_gather()**: Сбор данных логов.
+- **kore_accesslog_worker_init()**: Инициализация логирования для рабочего процесса.
 
-### 17. **Функции для работы с памятью и строками**:
-- **kore_strdup**: создание копии строки.
-- **kore_strlcpy**: безопасное копирование строки.
-- **kore_mem_zero**: обнуление памяти.
+### 6. **Конфигурация (config.c)**:
+- **kore_parse_config()**: Парсинг конфигурации.
+- **kore_parse_config_file()**: Парсинг конфигурационного файла.
 
-### 18. **Функции для работы с сетью и буферами**:
-- **kore_buf_alloc**: выделение памяти под буфер.
-- **kore_buf_append**: добавление данных в буфер.
-- **kore_buf_release**: освобождение данных из буфера.
+### 7. **Другие функции**:
+- **kore_log_init()**: Инициализация системы логирования.
+- **kore_log_file()**: Указание лог-файла.
+- **kore_configure_setting()**: Конфигурация установки для Python (если используется).
 
----
+Этот фрагмент кода продолжает описание различных функциональных частей фреймворка Kore, включая работу с памятью, пулами, утилитами, сообщениями, веб-сокетами, файлами, доменами и маршрутами. Рассмотрим основные компоненты:
 
-Это общий список экспортируемых функций в коде, каждая из которых служит для конкретных целей, таких как обработка соединений, работа с TLS, управление памятью, логирование и многие другие задачи, характерные для работы веб-сервера.
+### 1. **Работа с памятью (mem.c)**:
+- **kore_malloc(), kore_calloc(), kore_realloc(), kore_free()**: Функции для выделения, переаллокации и освобождения памяти.
+- **kore_mem_init(), kore_mem_cleanup()**: Инициализация и очистка системы управления памятью.
+- **kore_mem_tag()**: Присваивает метку объекту памяти.
+- **kore_mem_lookup()**: Поиск памяти по идентификатору.
+- **kore_mem_untag(), kore_mem_zero()**: Убирает метку и обнуляет память.
+- **kore_malloc_tagged()**: Выделяет память с меткой.
+
+### 2. **Пулы памяти (pool.c)**:
+- **kore_pool_get(), kore_pool_put()**: Получение и возврат объектов из пула.
+- **kore_pool_init(), kore_pool_cleanup()**: Инициализация и очистка пула памяти.
+
+### 3. **Утилиты (utils.c)**:
+- **fatal() и fatalx()**: Функции для завершения работы программы с выводом ошибки.
+- **kore_time_ms()**: Возвращает текущее время в миллисекундах.
+- **kore_strdup()**: Дублирование строки.
+- **kore_log()**: Логирование сообщений.
+- **kore_split_string()**: Разделяет строку на части.
+- **kore_base64_encode(), kore_base64_decode()**: Кодирование и декодирование данных в формате Base64.
+- **kore_strtonum(), kore_strtodouble()**: Преобразование строки в число.
+- **kore_server_disconnect()**: Отключение сервера.
+
+### 4. **Веб-сокеты (websocket.c)**:
+- **kore_websocket_handshake()**: Выполнение хендшейка для веб-сокета.
+- **kore_websocket_send(), kore_websocket_broadcast()**: Отправка сообщений по веб-сокету.
+- **kore_websocket_send_clean()**: Чистая отправка данных через веб-сокет.
+
+### 5. **Сообщения (msg.c)**:
+- **kore_msg_init()**: Инициализация системы сообщений.
+- **kore_msg_send()**: Отправка сообщения.
+- **kore_msg_register()**: Регистрация обработчика сообщения.
+
+### 6. **Файлы и маршруты (filemap.c, fileref.c, domain.c, route.c)**:
+- **kore_filemap_init(), kore_filemap_resolve_paths()**: Инициализация и разрешение путей для маппинга файлов.
+- **kore_fileref_get(), kore_fileref_create()**: Получение и создание ссылок на файлы.
+- **kore_domain_new(), kore_domain_lookup()**: Создание и поиск доменов.
+- **kore_route_create(), kore_route_lookup()**: Создание и поиск маршрутов для обработки HTTP-запросов.
+- **kore_domain_attach()**: Привязка домена к серверу.
+
+### 7. **Модули и время выполнения (runtime.c)**:
+- **kore_runtime_execute()**: Выполнение вызова для модуля.
+- **kore_module_load()**: Загрузка модуля.
+- **kore_runtime_http_request()**: Обработка HTTP-запроса в контексте модуля.
+- **kore_runtime_wsconnect(), kore_runtime_wsdisconnect()**: Обработка подключения и отключения веб-сокета.
+
+### 8. **Функции работы с сертификатами X.509**:
+- **kore_x509_issuer_name(), kore_x509_subject_name()**: Получение имени издателя и субъекта сертификата X.509.
+
+Этот фрагмент продолжает описание функционала Kore и включает работу с валидаторами, сетевыми операциями, буферами, JSON и менеджером ключей. Рассмотрим ключевые моменты:
+
+### 1. **Валидация (validator.c)**:
+- **kore_validator_init(), kore_validator_reload()**: Инициализация и перезагрузка системы валидаторов.
+- **kore_validator_add()**: Добавление валидатора с заданным именем и типом.
+- **kore_validator_run()**: Запуск валидатора для HTTP-запроса.
+- **kore_validator_check()**: Проверка запроса с использованием валидатора.
+- **kore_validator_lookup()**: Поиск валидатора по имени.
+
+### 2. **Работа с сетевыми операциями (net.c)**:
+- **net_read16(), net_read32(), net_read64()**: Чтение данных из сети в формате 16, 32 и 64 бита.
+- **net_write16(), net_write32(), net_write64()**: Запись данных в сеть.
+- **net_send(), net_recv_flush(), net_read(), net_write()**: Основные операции для отправки и получения данных через соединение.
+- **net_netbuf_get()**: Получение сетевого буфера.
+- **net_send_queue()**: Отправка данных через очередь.
+- **net_send_stream()**: Отправка данных в потоке.
+- **net_send_fileref()**: Отправка файлового объекта через сеть.
+
+### 3. **Буферы (buf.c)**:
+- **kore_buf_alloc(), kore_buf_free()**: Выделение и освобождение буфера.
+- **kore_buf_append()**: Добавление данных в буфер.
+- **kore_buf_stringify()**: Преобразование буфера в строку.
+- **kore_buf_appendf(), kore_buf_appendv()**: Добавление форматированных данных в буфер.
+- **kore_buf_replace_string()**: Замена строки в буфере.
+
+### 4. **JSON (json.c)**:
+- **kore_json_parse()**: Парсинг JSON данных.
+- **kore_json_cleanup()**: Очистка JSON объекта.
+- **kore_json_item_free()**: Освобождение элемента JSON.
+- **kore_json_create_item()**: Создание нового элемента JSON.
+- **kore_json_find()**: Поиск элемента JSON по ключу.
+
+### 5. **Менеджер ключей (keymgr.c)**:
+- **kore_keymgr_run()**: Запуск менеджера ключей.
+- **kore_keymgr_cleanup()**: Очистка и завершение работы менеджера ключей.
+
+Этот код предоставляет широкие возможности для обработки сетевых данных, работы с буферами и JSON, а также управления ключами для криптографических операций.
